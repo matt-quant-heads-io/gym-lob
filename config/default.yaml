@@ -1,0 +1,28 @@
+order:
+  size_pct_of_level: 0.5              # % of volume at selected DOM level
+  passive_order_ticks_offset: 2       # Ticks away from trigger for passive orders
+  passive_order_expiry_steps: 10      # Max lifetime of a passive order in steps
+
+ppo:
+  learning_rate: 0.0003
+  clip_param: 0.2
+  entropy_coeff: 0.01
+  value_loss_coeff: 0.5
+  num_epochs: 10
+  batch_size: 64
+  gae_lambda: 0.95
+  gamma: 0.99
+  total_timesteps: 1000000
+  rollout_steps: 2048
+
+model:
+  lstm_hidden_size: 128
+  transformer_heads: 4
+  transformer_layers: 2
+  dropout: 0.1
+
+env:
+  episode_length: 1000
+  tick_size: 0.01
+  max_position: 100
+  transaction_cost: 0.001
