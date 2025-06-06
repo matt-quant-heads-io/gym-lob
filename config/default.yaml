@@ -20,9 +20,15 @@ model:
   transformer_heads: 4
   transformer_layers: 2
   dropout: 0.1
+  sequence_length: 3                 # Number of orderbook frames to stack
+  use_positional_encoding: true       # Whether to use positional encoding for sequences
 
 env:
   episode_length: 1000
   tick_size: 0.01
   max_position: 100
   transaction_cost: 0.001
+  sequence_length: 3                 # Lookback period for orderbook frames
+  dom_height: 20
+  dom_width: 4
+  cash: 100000

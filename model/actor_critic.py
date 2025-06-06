@@ -4,8 +4,8 @@ import torch.nn.functional as F
 from typing import Tuple, Optional
 import math
 
-class PositionalEncoding(nn.Module):
-    """Positional encoding for transformer"""
+class SequencePositionalEncoding(nn.Module):
+    """Positional encoding for orderbook sequences"""
     
     def __init__(self, d_model: int, max_len: int = 5000):
         super().__init__()
@@ -17,35 +17,46 @@ class PositionalEncoding(nn.Module):
         
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0)  # Add batch dimension
         
         self.register_buffer('pe', pe)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.pe[:x.size(0), :]
+        # x shape: (batch_size, seq_len, d_model)
+        return x + self.pe[:, :x.size(1), :].to(x.device)
 
 class ActorCritic(nn.Module):
     """
-    Actor-Critic network with LSTM + Transformer architecture
+    Actor-Critic network with LSTM + Transformer for sequence processing
+    Handles stacked orderbook frames
     """
     
     def __init__(self, 
-                 input_size: int = 122,
+                 observation_shape: Tuple[int, int],  # (sequence_length, features)
                  lstm_hidden_size: int = 128, 
                  transformer_heads: int = 4,
                  transformer_layers: int = 2,
                  action_dim: int = 7,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1,
+                 use_positional_encoding: bool = True):
         super().__init__()
         
-        self.input_size = input_size
+        self.sequence_length, self.input_size = observation_shape
         self.lstm_hidden_size = lstm_hidden_size
         self.action_dim = action_dim
+        self.use_positional_encoding = use_positional_encoding
         
-        # Input projection
-        self.input_proj = nn.Linear(input_size, lstm_hidden_size)
+        print(f"ActorCritic initialized with:")
+        print(f"  Sequence length: {self.sequence_length}")
+        print(f"  Input size per frame: {self.input_size}")
+        print(f"  LSTM hidden size: {lstm_hidden_size}")
+        print(f"  Transformer heads: {transformer_heads}")
+        print(f"  Transformer layers: {transformer_layers}")
         
-        # LSTM feature extractor
+        # Input projection for each frame
+        self.input_proj = nn.Linear(self.input_size, lstm_hidden_size)
+        
+        # LSTM for processing sequences
         self.lstm = nn.LSTM(
             input_size=lstm_hidden_size,
             hidden_size=lstm_hidden_size, 
@@ -55,9 +66,10 @@ class ActorCritic(nn.Module):
         )
         
         # Positional encoding for transformer
-        self.pos_encoding = PositionalEncoding(lstm_hidden_size)
+        if self.use_positional_encoding:
+            self.pos_encoding = SequencePositionalEncoding(lstm_hidden_size)
         
-        # Transformer layers
+        # Transformer layers for capturing temporal patterns
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=lstm_hidden_size,
             nhead=transformer_heads,
@@ -69,6 +81,14 @@ class ActorCritic(nn.Module):
         self.transformer = nn.TransformerEncoder(
             encoder_layer, 
             num_layers=transformer_layers
+        )
+        
+        # Attention mechanism for sequence aggregation
+        self.attention = nn.MultiheadAttention(
+            embed_dim=lstm_hidden_size,
+            num_heads=transformer_heads,
+            dropout=dropout,
+            batch_first=True
         )
         
         # Output heads
@@ -103,52 +123,48 @@ class ActorCritic(nn.Module):
                         nn.init.constant_(param, 0)
     
     def forward(self, x: torch.Tensor, 
-                hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-                sequence_length: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+                hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
-        Forward pass
+        Forward pass for sequence of orderbook frames
         
         Args:
-            x: Input tensor of shape (batch_size, seq_len, input_size) or (batch_size, input_size)
+            x: Input tensor of shape (batch_size, sequence_length, features)
             hidden: LSTM hidden state tuple (h, c)
-            sequence_length: Optional sequence length for masking
             
         Returns:
             action_logits: (batch_size, action_dim) 
             value: (batch_size, 1)
             new_hidden: Updated LSTM hidden state
         """
-        batch_size = x.size(0)
+        batch_size, seq_len, features = x.shape
         
-        # Handle single step vs sequence input
-        if x.dim() == 2:
-            x = x.unsqueeze(1)  # Add sequence dimension
-            single_step = True
-        else:
-            single_step = False
-            
-        seq_len = x.size(1)
+        # Ensure input is the right shape
+        assert seq_len == self.sequence_length, f"Expected sequence length {self.sequence_length}, got {seq_len}"
+        assert features == self.input_size, f"Expected {self.input_size} features, got {features}"
         
-        # Input projection
-        x = F.relu(self.input_proj(x))  # (batch_size, seq_len, lstm_hidden_size)
+        # Project each frame
+        # x shape: (batch_size, seq_len, features) -> (batch_size, seq_len, lstm_hidden_size)
+        x_proj = F.relu(self.input_proj(x))
         
-        # LSTM processing
-        lstm_out, new_hidden = self.lstm(x, hidden)  # (batch_size, seq_len, lstm_hidden_size)
+        # LSTM processing - handles the sequence
+        lstm_out, new_hidden = self.lstm(x_proj, hidden)
+        # lstm_out shape: (batch_size, seq_len, lstm_hidden_size)
         
-        # Transformer processing
-        # Add positional encoding
-        lstm_out = lstm_out.transpose(0, 1)  # (seq_len, batch_size, lstm_hidden_size)
-        lstm_out = self.pos_encoding(lstm_out)
-        lstm_out = lstm_out.transpose(0, 1)  # (batch_size, seq_len, lstm_hidden_size)
+        # Apply positional encoding if enabled
+        if self.use_positional_encoding:
+            lstm_out = self.pos_encoding(lstm_out)
         
-        # Apply transformer
-        transformer_out = self.transformer(lstm_out)  # (batch_size, seq_len, lstm_hidden_size)
+        # Transformer processing for temporal dependencies
+        transformer_out = self.transformer(lstm_out)
+        # transformer_out shape: (batch_size, seq_len, lstm_hidden_size)
         
-        # Use last timestep for predictions
-        if single_step:
-            features = transformer_out[:, -1, :]  # (batch_size, lstm_hidden_size)
-        else:
-            features = transformer_out[:, -1, :]  # Use last timestep
+        # Aggregate sequence using attention
+        # Use the last timestep as query, attending to all timesteps
+        query = transformer_out[:, -1:, :]  # (batch_size, 1, lstm_hidden_size)
+        attn_out, attn_weights = self.attention(query, transformer_out, transformer_out)
+        
+        # Use the attended output for final predictions
+        features = attn_out.squeeze(1)  # (batch_size, lstm_hidden_size)
         
         # Generate outputs
         action_logits = self.actor_head(features)  # (batch_size, action_dim)
@@ -168,6 +184,11 @@ class ActorCritic(nn.Module):
         """
         Get action and value for PPO training
         
+        Args:
+            x: Observation tensor (batch_size, sequence_length, features)
+            hidden: LSTM hidden state
+            action: Optional action tensor for computing log prob
+            
         Returns:
             action: Selected action
             log_prob: Log probability of action  

@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import threading
 import time
-from env import OrderbookEnv
+from envs import OrderbookEnv
 from model import ActorCritic
 from gui.dom_visualizer import DOMVisualizerGUI, MarketData
 
@@ -32,7 +32,7 @@ class InteractiveEvaluator:
             dropout=self.config['model']['dropout']
         ).to(self.device)
         
-        checkpoint = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         

@@ -1,0 +1,5 @@
+Remaining tasks:
+1) Properly handle passive orders
+    a) FILL: if the touch gets to fill price then assume fill 
+    b) EXPIRES: if steps reaches step_expiry (keep this as an attribute inside of the PASSIVE_ORDER object)
+    c) CANCELS: action comes from the agent

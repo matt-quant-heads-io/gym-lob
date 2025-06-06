@@ -6,18 +6,22 @@ from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
 import gymnasium as gym
 from .actor_critic import ActorCritic
+from torch.nn import functional as F
 
-class RolloutBuffer:
-    """Buffer for storing rollout data"""
+class SequenceRolloutBuffer:
+    """Buffer for storing rollout data with sequence support"""
     
-    def __init__(self, buffer_size: int, obs_dim: int, device: torch.device):
+    def __init__(self, buffer_size: int, obs_shape: Tuple[int, int], device: torch.device):
         self.buffer_size = buffer_size
         self.device = device
         self.ptr = 0
         self.size = 0
         
-        # Buffers
-        self.observations = torch.zeros((buffer_size, obs_dim), device=device)
+        seq_len, features = obs_shape
+        print(f"RolloutBuffer initialized with obs_shape: {obs_shape}")
+        
+        # Buffers - observations now include sequence dimension
+        self.observations = torch.zeros((buffer_size, seq_len, features), device=device)
         self.actions = torch.zeros((buffer_size,), dtype=torch.long, device=device)
         self.rewards = torch.zeros((buffer_size,), device=device)
         self.dones = torch.zeros((buffer_size,), dtype=torch.bool, device=device)
@@ -29,7 +33,13 @@ class RolloutBuffer:
     def add(self, obs: np.ndarray, action: int, reward: float, done: bool, 
             log_prob: float, value: float):
         """Add experience to buffer"""
-        self.observations[self.ptr] = torch.FloatTensor(obs).to(self.device)
+        obs_tensor = torch.FloatTensor(obs).to(self.device)
+        if obs_tensor.dim() == 1:
+            # Handle single frame case - shouldn't happen with sequences but just in case
+            print(f"Warning: received 1D observation, expected 2D sequence")
+            return
+        
+        self.observations[self.ptr] = obs_tensor
         self.actions[self.ptr] = action
         self.rewards[self.ptr] = reward
         self.dones[self.ptr] = done
@@ -92,7 +102,7 @@ class RolloutBuffer:
             }
 
 class PPOTrainer:
-    """PPO Trainer for the Actor-Critic model"""
+    """PPO Trainer for the sequence-based Actor-Critic model"""
     
     def __init__(self, env: gym.Env, config: Dict):
         self.env = env
@@ -110,23 +120,33 @@ class PPOTrainer:
         self.gamma = config['ppo']['gamma']
         self.rollout_steps = config['ppo']['rollout_steps']
         
+        # Model parameters
+        self.sequence_length = config['model'].get('sequence_length', 10)
+        self.use_positional_encoding = config['model'].get('use_positional_encoding', True)
+        
+        print(f"PPO Trainer initialized:")
+        print(f"  Environment observation space: {env.observation_space.shape}")
+        print(f"  Sequence length: {self.sequence_length}")
+        print(f"  Device: {self.device}")
+        
         # Initialize model
         self.model = ActorCritic(
-            input_size=env.observation_space.shape[0],
+            observation_shape=env.observation_space.shape,
             lstm_hidden_size=config['model']['lstm_hidden_size'],
             transformer_heads=config['model']['transformer_heads'],
             transformer_layers=config['model']['transformer_layers'],
             action_dim=env.action_space.n,
-            dropout=config['model']['dropout']
+            dropout=config['model']['dropout'],
+            use_positional_encoding=self.use_positional_encoding
         ).to(self.device)
         
         # Optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         
         # Rollout buffer
-        self.buffer = RolloutBuffer(
+        self.buffer = SequenceRolloutBuffer(
             buffer_size=self.rollout_steps,
-            obs_dim=env.observation_space.shape[0], 
+            obs_shape=env.observation_space.shape, 
             device=self.device
         )
         
@@ -147,6 +167,7 @@ class PPOTrainer:
         
         for step in range(self.rollout_steps):
             with torch.no_grad():
+                # Add batch dimension and move to device
                 obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
                 action, log_prob, value, _ = self.model.get_action_and_value(obs_tensor, hidden)
                 action = action.item()
@@ -255,6 +276,8 @@ class PPOTrainer:
         timesteps_collected = 0
         update_count = 0
         
+        print(f"Starting training with sequence length: {self.sequence_length}")
+        
         while timesteps_collected < total_timesteps:
             # Collect rollouts
             rollout_metrics = self.collect_rollouts()
@@ -287,9 +310,11 @@ class PPOTrainer:
             'config': self.config,
             'training_metrics': dict(self.training_metrics)
         }, filepath)
+        print(f"Model saved to {filepath}")
     
     def load_model(self, filepath: str):
         """Load model checkpoint"""
         checkpoint = torch.load(filepath, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print(f"Model loaded from {filepath}")
