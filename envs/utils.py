@@ -62,7 +62,7 @@ class PassiveOrderManager:
         ask_size = self.ask_order.size if self.ask_order else 0.0
         return np.array([bid_size, ask_size], dtype=np.float32)
 
-def format_dom(bids: np.ndarray, asks: np.ndarray, levels: int = 20) -> np.ndarray:
+def format_dom(bids: np.ndarray, asks: np.ndarray, levels: int = 20, dom_cols: int = 4) -> np.ndarray:
     """
     Format bid/ask data into DOM representation
     
@@ -74,21 +74,21 @@ def format_dom(bids: np.ndarray, asks: np.ndarray, levels: int = 20) -> np.ndarr
     Returns:
         DOM array of shape (levels, 6): [bid_vol, bid_size, bid_price, ask_vol, ask_size, ask_price]
     """
-    dom = np.zeros((levels, 6), dtype=np.float32)
+    dom = np.zeros((levels, dom_cols), dtype=np.float32)
     
     # Bid side (columns 0-2): volume, size, price (descending price order)
     bid_levels = min(len(bids), levels)
     if bid_levels > 0:
-        dom[:bid_levels, 0] = bids[:bid_levels, 2]  # volume
-        dom[:bid_levels, 1] = bids[:bid_levels, 1]  # size  
-        dom[:bid_levels, 2] = bids[:bid_levels, 0]  # price
+        dom[:bid_levels, 0] = bids[:bid_levels, 0]  # size
+        dom[:bid_levels, 1] = bids[:bid_levels, 1]  # price  
+        # dom[:bid_levels, 2] = bids[:bid_levels, 0]  # reserved for volume
     
     # Ask side (columns 3-5): volume, size, price (ascending price order)
     ask_levels = min(len(asks), levels)
     if ask_levels > 0:
-        dom[:ask_levels, 3] = asks[:ask_levels, 2]  # volume
-        dom[:ask_levels, 4] = asks[:ask_levels, 1]  # size
-        dom[:ask_levels, 5] = asks[:ask_levels, 0]  # price
+        dom[:ask_levels, 0] = asks[:ask_levels, 0]  # size 
+        dom[:ask_levels, 1] = asks[:ask_levels, 1]  # price
+        # dom[:ask_levels, 5] = asks[:ask_levels, 0]  # reserved for volume
     
     return dom
 
@@ -103,7 +103,8 @@ def generate_synthetic_orderbook(mid_price: float = 100.0, tick_size: float = 0.
     bid_sizes = np.random.exponential(50, levels) + 10
     bid_volumes = bid_sizes * np.random.uniform(0.8, 1.2, levels)
     
-    bids = np.column_stack([bid_prices, bid_sizes, bid_volumes])
+    # bids = np.column_stack([bid_prices, bid_sizes, bid_volumes])
+    bids = np.column_stack([bid_sizes, bid_prices])
     
     # Generate ask levels (ascending from mid_price)  
     ask_prices = np.arange(mid_price + tick_size,
@@ -112,6 +113,7 @@ def generate_synthetic_orderbook(mid_price: float = 100.0, tick_size: float = 0.
     ask_sizes = np.random.exponential(50, levels) + 10  
     ask_volumes = ask_sizes * np.random.uniform(0.8, 1.2, levels)
     
-    asks = np.column_stack([ask_prices, ask_sizes, ask_volumes])
+    # asks = np.column_stack([ask_prices, ask_sizes, ask_volumes])
+    asks = np.column_stack([ask_prices, ask_sizes])
     
     return bids, asks

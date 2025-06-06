@@ -138,7 +138,7 @@ class OrderbookEnv(gym.Env):
     def _get_current_frame(self) -> np.ndarray:
         """Get the current observation frame without sequence dimension"""
         # DOM representation (20x6 = 120 features)
-        dom = format_dom(self.current_bids, self.current_asks, 20)
+        dom = format_dom(self.current_bids, self.current_asks, levels=self.config['env']['dom_height'], dom_cols=self.config['env']['dom_width'])
         dom_flat = dom.flatten()
         
         # Position (1 feature)
@@ -180,7 +180,7 @@ class OrderbookEnv(gym.Env):
         
         # Generate new orderbook around current mid price
         self.current_bids, self.current_asks = generate_synthetic_orderbook(
-            self.mid_price, self.tick_size, 20
+            self.mid_price, self.tick_size, self.config['env']['dom_height']
         )
     
     def _execute_action(self, action: int) -> float:
@@ -216,12 +216,12 @@ class OrderbookEnv(gym.Env):
             return -0.01  # Small penalty for invalid action
         
         # Use best bid as trigger level
-        trigger_price = self.current_bids[0, 0]  # Best bid price
+        trigger_price = self.current_bids[0, 1]  # Best bid price
         order_price = trigger_price - (self.passive_order_ticks_offset * self.tick_size)
         
         # Calculate order size
-        trigger_volume = self.current_bids[0, 2]  # Volume at best bid
-        order_size = self.size_pct_of_level * trigger_volume
+        trigger_size = self.current_bids[0, 0]  # Volume at best bid
+        order_size = self.size_pct_of_level * trigger_size
         
         success = self.passive_order_manager.place_bid_order(order_price, order_size)
         return 0.0 if success else -0.01
@@ -236,8 +236,8 @@ class OrderbookEnv(gym.Env):
         order_price = trigger_price + (self.passive_order_ticks_offset * self.tick_size)
         
         # Calculate order size
-        trigger_volume = self.current_asks[0, 2]  # Volume at best ask
-        order_size = self.size_pct_of_level * trigger_volume
+        trigger_size = self.current_asks[0, 1]  # size at best ask
+        order_size = self.size_pct_of_level * trigger_size
         
         success = self.passive_order_manager.place_ask_order(order_price, order_size)
         return 0.0 if success else -0.01
@@ -249,10 +249,10 @@ class OrderbookEnv(gym.Env):
         
         # Use best ask
         ask_price = self.current_asks[0, 0]
-        ask_volume = self.current_asks[0, 2]
+        ask_sz = self.current_asks[0, 1]
         
         # Calculate order size
-        order_size = self.size_pct_of_level * ask_volume
+        order_size = self.size_pct_of_level * ask_sz
         
         # Check position limits
         if self.position + order_size > self.max_position:
@@ -274,11 +274,11 @@ class OrderbookEnv(gym.Env):
             return -0.1
         
         # Use best bid
-        bid_price = self.current_bids[0, 0]
-        bid_volume = self.current_bids[0, 2]
+        bid_price = self.current_bids[0, 1]
+        bid_sz = self.current_bids[0, 0]
         
         # Calculate order size
-        order_size = self.size_pct_of_level * bid_volume
+        order_size = self.size_pct_of_level * bid_sz
         
         # Check position limits
         if self.position - order_size < -self.max_position:
@@ -304,7 +304,7 @@ class OrderbookEnv(gym.Env):
             if len(self.current_bids) == 0:
                 return -0.1
             
-            bid_price = self.current_bids[0, 0]
+            bid_price = self.current_bids[0, 1]
             trade_value = abs(self.position) * bid_price
             transaction_cost = trade_value * self.transaction_cost
             
@@ -337,7 +337,7 @@ class OrderbookEnv(gym.Env):
         if self.passive_order_manager.bid_order:
             bid_order = self.passive_order_manager.bid_order
             # Simplified fill logic: if market traded at or below our bid price
-            if len(self.current_bids) > 0 and self.current_bids[0, 0] <= bid_order.price:
+            if len(self.current_bids) > 0 and self.current_bids[0, 1] <= bid_order.price:
                 # Fill the order
                 trade_value = bid_order.size * bid_order.price
                 transaction_cost = trade_value * self.transaction_cost * 0.5  # Reduced cost for passive

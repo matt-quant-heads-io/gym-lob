@@ -308,7 +308,26 @@ class PPOTrainer:
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'config': self.config,
-            'training_metrics': dict(self.training_metrics)
+            'training_metrics': dict(self.training_metrics),
+            'normalization_values': {
+                'bid_px': {
+                    'mean': 3.41,
+                    'std': 0.32
+                },
+                'bid_sz': {
+                    'mean': 5432.83,
+                    'std': 438.97
+                },
+                'ask_px': {
+                    'mean': 3.41,
+                    'std': 0.32
+                },
+                'ask_sz': {
+                    'mean': 5432.83,
+                    'std': 438.97
+                }
+            }
+
         }, filepath)
         print(f"Model saved to {filepath}")
     
