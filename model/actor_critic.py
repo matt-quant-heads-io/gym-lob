@@ -36,7 +36,7 @@ class ActorCritic(nn.Module):
                  lstm_hidden_size: int = 128, 
                  transformer_heads: int = 4,
                  transformer_layers: int = 2,
-                 action_dim: int = 7,
+                 action_dim: int = 4,
                  dropout: float = 0.1,
                  use_positional_encoding: bool = True):
         super().__init__()

@@ -45,7 +45,7 @@ def main():
     )
     
     # Save the trained model
-    trainer.save_model('trained_model_stacked.pth')
+    trainer.save_model('/home/ubuntu/gym-lob/trained_model_stacked.pth')
     print("\n🎉 Training completed! Model saved to 'trained_model_stacked.pth'")
 
 if __name__ == "__main__":

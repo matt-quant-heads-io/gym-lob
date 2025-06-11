@@ -12,7 +12,7 @@ ppo:
   batch_size: 64
   gae_lambda: 0.95
   gamma: 0.99
-  total_timesteps: 100000
+  total_timesteps: 30000
   rollout_steps: 2048
 
 model:
@@ -32,3 +32,4 @@ env:
   dom_height: 20
   dom_width: 4
   cash: 100000
+  action_space: 4

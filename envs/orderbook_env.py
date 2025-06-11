@@ -15,13 +15,24 @@ class OrderbookEnv(gym.Env):
     """
     
     # Action constants
+    # DO_NOTHING = 0
+    # PASSIVE_LIMIT_BUY_ORDER = 1
+    # PASSIVE_LIMIT_SELL_ORDER = 2
+    # CANCEL_PASSIVE_ORDERS = 3
+    # MARKET_BUY = 4
+    # MARKET_SELL = 5
+    # CLOSE_ALL = 6
     DO_NOTHING = 0
-    PASSIVE_LIMIT_BUY_ORDER = 1
-    PASSIVE_LIMIT_SELL_ORDER = 2
-    CANCEL_PASSIVE_ORDERS = 3
-    MARKET_BUY = 4
-    MARKET_SELL = 5
-    CLOSE_ALL = 6
+    MURK_SELL_ORDER = 1
+    MURK_BUY_ORDER = 2
+    CLOSE_ALL = 4
+
+    # PASSIVE_LIMIT_BUY_ORDER = 1
+    # PASSIVE_LIMIT_SELL_ORDER = 2
+    # CANCEL_PASSIVE_ORDERS = 3
+    # MARKET_BUY = 4
+    # MARKET_SELL = 5
+    # CLOSE_ALL = 6
     
     def __init__(self, config_path: str = "config/default.yaml"):
         super().__init__()
@@ -47,10 +58,10 @@ class OrderbookEnv(gym.Env):
         self.state_features = 3   # position + 2 passive order features
         
         # Spaces
-        self.action_space = spaces.Discrete(7)
+        self.action_space = spaces.Discrete(self.config['env']['action_space'])
         
         # Observation space: (sequence_length, features)
-        # Features = DOM (20x6=120) + position (1) + passive orders (2) = 123
+        # Features = DOM (20x4=80) + position (1) + passive orders (2) = 83
         self.single_frame_size = np.prod(self.dom_shape) + self.state_features
         self.observation_space = spaces.Box(
             low=-np.inf, 
@@ -190,25 +201,33 @@ class OrderbookEnv(gym.Env):
         if action == self.DO_NOTHING:
             pass
         
-        elif action == self.PASSIVE_LIMIT_BUY_ORDER:
-            reward += self._place_passive_buy_order()
+        elif action == self.MURK_SELL_ORDER:
+            reward += self._place_murk_sell_order()
         
-        elif action == self.PASSIVE_LIMIT_SELL_ORDER:
-            reward += self._place_passive_sell_order()
-        
-        elif action == self.CANCEL_PASSIVE_ORDERS:
-            self.passive_order_manager.cancel_all_orders()
-        
-        elif action == self.MARKET_BUY:
-            reward += self._execute_market_buy()
-        
-        elif action == self.MARKET_SELL:
-            reward += self._execute_market_sell()
+        elif action == self.MURK_BUY_ORDER:
+            reward += self._place_murk_buy_order()
         
         elif action == self.CLOSE_ALL:
             reward += self._close_all_positions()
         
         return reward
+
+    def _place_murk_buy_order(self):
+        reward = 0.0
+
+        reward += self._place_passive_buy_order()
+        reward += self._execute_market_sell()
+
+        return reward
+
+    def _place_murk_sell_order(self):
+        reward = 0.0
+
+        reward += self._place_passive_sell_order()
+        reward += self._execute_market_buy()
+
+        return reward
+
     
     def _place_passive_buy_order(self) -> float:
         """Place a passive buy order"""
@@ -296,6 +315,9 @@ class OrderbookEnv(gym.Env):
     
     def _close_all_positions(self) -> float:
         """Close all open positions"""
+        
+        self.passive_order_manager.cancel_all_orders()
+
         if abs(self.position) < 1e-6:
             return 0.0
         
